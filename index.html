@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Encontrar banheiro</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f6f4;
+      --ink: #1c2420;
+      --muted: #4d5c55;
+      --line: #d5e0da;
+      --card: #fff;
+      --accent: #0f6e56;
+      --accent-ink: #fff;
+      --warn: #8a3b12;
+      --warn-bg: #fff4ec;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    header, .tools, footer { padding: 10px 12px; }
+    header { padding-bottom: 0; }
+    h1 { font-size: 1.25rem; margin: 0 0 6px; }
+    #status {
+      margin: 0;
+      min-height: 2.6em;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+    #status.erro {
+      color: var(--warn);
+      background: var(--warn-bg);
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
+    .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, button {
+      font: inherit;
+      min-height: 44px;
+      border-radius: 10px;
+    }
+    input {
+      flex: 1 1 180px;
+      min-width: 0;
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      background: var(--card);
+    }
+    button {
+      border: 0;
+      background: var(--accent);
+      color: var(--accent-ink);
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    button.secundario { background: #e7eeea; color: var(--ink); }
+    #escolhas { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
+    #escolhas button {
+      text-align: left;
+      background: var(--card);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #map { height: 46vh; min-height: 240px; background: #d9e2dc; }
+    #lista {
+      list-style: none;
+      margin: 0;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #lista li button {
+      width: 100%;
+      text-align: left;
+      background: var(--card);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      display: block;
+    }
+    #lista li button.ativo { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+    #lista .nome { display: block; font-weight: 650; }
+    #lista .detalhe { display: block; color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
+    #vazio { margin: 8px 12px; color: var(--muted); }
+    footer {
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+    @media (min-width: 800px) {
+      .layout { flex-direction: row; min-height: 420px; }
+      #map { flex: 1; height: auto; min-height: 420px; }
+      .lado { width: min(380px, 38vw); overflow: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Encontrar banheiro</h1>
+    <p id="status">Pedindo sua localização…</p>
+  </header>
+  <form class="tools" id="form-endereco">
+    <input id="endereco" type="search" enterkeyhint="search" placeholder="Cidade ou endereço" autocomplete="off" aria-label="Cidade ou endereço">
+    <button type="submit">Buscar</button>
+    <button type="button" class="secundario" id="de-novo">Buscar de novo</button>
+  </form>
+  <div id="escolhas" hidden></div>
+  <div class="layout">
+    <div id="map" role="region" aria-label="Mapa"></div>
+    <div class="lado">
+      <p id="vazio">Os banheiros aparecem aqui.</p>
+      <ul id="lista"></ul>
+    </div>
+  </div>
+  <footer>© OpenStreetMap contributors. Endereços via Nominatim. Banheiros via Overpass. A cobertura no Brasil é incompleta.</footer>
+  <noscript><p>Ative o JavaScript para buscar banheiros.</p></noscript>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const statusEl = document.getElementById("status");
+    const listaEl = document.getElementById("lista");
+    const vazioEl = document.getElementById("vazio");
+    const escolhasEl = document.getElementById("escolhas");
+    const btnDeNovo = document.getElementById("de-novo");
+    const form = document.getElementById("form-endereco");
+    const inputEndereco = document.getElementById("endereco");
+
+    const RAIO_PERTO = 2000;
+    const RAIO_LONGE = 5000;
+    const POUCOS = 3;
+
+    let mapa = null;
+    let camadaBanheiros = null;
+    let marcaUsuario = null;
+    let circulo = null;
+    let ponto = null;
+    let buscaId = 0;
+    let geoToken = 0;
+    let ocupado = false;
+
+    function texto(msg, erro) {
+      statusEl.textContent = msg;
+      statusEl.classList.toggle("erro", !!erro);
+    }
+
+    function metros(m) {
+      return Math.round(m).toLocaleString("pt-BR") + " m";
+    }
+
+    function distancia(aLat, aLon, bLat, bLon) {
+      const R = 6371000;
+      const r = Math.PI / 180;
+      const dLat = (bLat - aLat) * r;
+      const dLon = (bLon - aLon) * r;
+      const s = Math.sin(dLat / 2) ** 2 +
+        Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+    }
+
+    function cadeira(tags) {
+      if (!tags || tags.wheelchair == null || tags.wheelchair === "") return "";
+      const mapaTxt = { yes: "sim", no: "não", limited: "limitado", designated: "sim" };
+      const valor = mapaTxt[tags.wheelchair] || tags.wheelchair;
+      return "Cadeira de rodas: " + valor;
+    }
+
+    function nomeDo(tags) {
+      if (!tags) return "Banheiro sem nome";
+      return tags.name || tags["name:pt"] || "Banheiro sem nome";
+    }
+
+    function coordenadas(el) {
+      if (typeof el.lat === "number" && typeof el.lon === "number") return [el.lat, el.lon];
+      if (el.center && typeof el.center.lat === "number") return [el.center.lat, el.center.lon];
+      return null;
+    }
+
+    function garantirMapa(lat, lon) {
+      if (!window.L) {
+        texto("O mapa não carregou. Verifique a internet e abra de novo.", true);
+        return false;
+      }
+      if (!mapa) {
+        mapa = L.map("map", { zoomControl: true });
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "© OpenStreetMap contributors"
+        }).addTo(mapa);
+        camadaBanheiros = L.layerGroup().addTo(mapa);
+      }
+      mapa.setView([lat, lon], 15);
+      return true;
+    }
+
+    function marcarUsuario(lat, lon, raio) {
+      if (marcaUsuario) mapa.removeLayer(marcaUsuario);
+      if (circulo) mapa.removeLayer(circulo);
+      marcaUsuario = L.circleMarker([lat, lon], {
+        radius: 8,
+        color: "#0b3d91",
+        fillColor: "#3b82f6",
+        fillOpacity: 0.95,
+        weight: 2
+      }).addTo(mapa).bindPopup("Você está aqui");
+      circulo = L.circle([lat, lon], {
+        radius: raio,
+        color: "#0f6e56",
+        weight: 1,
+        fillOpacity: 0.05
+      }).addTo(mapa);
+    }
+
+    function consultaOverpass(lat, lon, raio) {
+      const la = Number(lat).toFixed(6);
+      const lo = Number(lon).toFixed(6);
+      const q = '[out:json][timeout:25];(node["amenity"="toilets"](around:' + raio + "," + la + "," + lo +
+        ');way["amenity"="toilets"](around:' + raio + "," + la + "," + lo +
+        ');relation["amenity"="toilets"](around:' + raio + "," + la + "," + lo +
+        "););out center;";
+      const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q);
+      const ctrl = new AbortController();
+      const timer = setTimeout(function () { ctrl.abort(); }, 30000);
+      return fetch(url, { signal: ctrl.signal }).then(function (res) {
+        if (!res.ok) throw new Error("http " + res.status);
+        return res.json();
+      }).finally(function () { clearTimeout(timer); });
+    }
+
+    function lugaresDe(json, lat, lon) {
+      const vistos = Object.create(null);
+      const lista = [];
+      const elementos = (json && json.elements) || [];
+      elementos.forEach(function (el) {
+        const c = coordenadas(el);
+        if (!c) return;
+        const chave = el.type + "/" + el.id;
+        if (vistos[chave]) return;
+        vistos[chave] = true;
+        const tags = el.tags || {};
+        lista.push({
+          id: chave,
+          lat: c[0],
+          lon: c[1],
+          nome: nomeDo(tags),
+          cadeira: cadeira(tags),
+          dist: distancia(lat, lon, c[0], c[1])
+        });
+      });
+      lista.sort(function (a, b) { return a.dist - b.dist; });
+      return lista;
+    }
+
+    function desenhar(lugares, lat, lon) {
+      camadaBanheiros.clearLayers();
+      listaEl.innerHTML = "";
+      vazioEl.hidden = lugares.length > 0;
+      if (!lugares.length) {
+        vazioEl.textContent = "Nenhum banheiro nesta busca.";
+        return;
+      }
+      lugares.forEach(function (p) {
+        const extra = p.cadeira ? "<br>" + p.cadeira : "";
+        const rota = "https://www.openstreetmap.org/directions?engine=fossgis_osrm_foot&route=" +
+          encodeURIComponent(lat + "," + lon + ";" + p.lat + "," + p.lon);
+        const popup = "<strong>" + escapar(p.nome) + "</strong><br>" + metros(p.dist) + extra +
+          '<br><a href="' + rota + '" target="_blank" rel="noopener">Como chegar</a>';
+        const marker = L.marker([p.lat, p.lon]).addTo(camadaBanheiros);
+        marker.bindPopup(popup);
+        p.marker = marker;
+
+        const li = document.createElement("li");
+        const b = document.createElement("button");
+        b.type = "button";
+        const nome = document.createElement("span");
+        nome.className = "nome";
+        nome.textContent = p.nome;
+        const det = document.createElement("span");
+        det.className = "detalhe";
+        det.textContent = metros(p.dist) + (p.cadeira ? " · " + p.cadeira : "");
+        b.appendChild(nome);
+        b.appendChild(det);
+        b.addEventListener("click", function () {
+          document.querySelectorAll("#lista button").forEach(function (el) { el.classList.remove("ativo"); });
+          b.classList.add("ativo");
+          mapa.setView([p.lat, p.lon], 18);
+          marker.openPopup();
+        });
+        li.appendChild(b);
+        listaEl.appendChild(li);
+      });
+    }
+
+    function escapar(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+      });
+    }
+
+    function setOcupado(v) {
+      ocupado = v;
+      btnDeNovo.disabled = v;
+      form.querySelector("button[type=submit]").disabled = v;
+    }
+
+    function buscarBanheiros(lat, lon) {
+      if (!garantirMapa(lat, lon)) return;
+      ponto = { lat: lat, lon: lon };
+      const id = ++buscaId;
+      setOcupado(true);
+      texto("Buscando banheiros num raio de 2 km…");
+      consultaOverpass(lat, lon, RAIO_PERTO).then(function (json) {
+        if (id !== buscaId) return;
+        let lugares = lugaresDe(json, lat, lon);
+        let raio = RAIO_PERTO;
+        if (lugares.length >= POUCOS) return { lugares: lugares, raio: raio };
+        texto(lugares.length ? "Poucos resultados. Buscando num raio de 5 km…" : "Nada em 2 km. Buscando num raio de 5 km…");
+        return consultaOverpass(lat, lon, RAIO_LONGE).then(function (json2) {
+          return { lugares: lugaresDe(json2, lat, lon), raio: RAIO_LONGE, aviso: json2 && json2.remark };
+        }).catch(function () {
+          return { lugares: lugares, raio: RAIO_PERTO, falhaAmpla: true };
+        });
+      }).then(function (res) {
+        if (!res || id !== buscaId) return;
+        marcarUsuario(lat, lon, res.raio);
+        desenhar(res.lugares, lat, lon);
+        mapa.setView([lat, lon], res.raio > RAIO_PERTO ? 13 : 15);
+        const km = res.raio / 1000;
+        if (!res.lugares.length) {
+          texto("Nenhum banheiro público num raio de " + km + " km. O OpenStreetMap pode não ter banheiros nesta área.", true);
+        } else if (res.falhaAmpla) {
+          const n2 = res.lugares.length;
+          texto(n2 + (n2 === 1 ? " banheiro em 2 km. A busca de 5 km falhou." : " banheiros em 2 km. A busca de 5 km falhou."));
+        } else {
+          const n = res.lugares.length;
+          texto(n + (n === 1 ? " banheiro" : " banheiros") + " num raio de " + km + " km.");
+        }
+      }).catch(function () {
+        if (id !== buscaId) return;
+        texto("Não consegui consultar os banheiros. Tente de novo em alguns segundos.", true);
+        vazioEl.hidden = false;
+        vazioEl.textContent = "A consulta falhou. Toque em Buscar de novo.";
+      }).finally(function () {
+        if (id === buscaId) setOcupado(false);
+      });
+    }
+
+    function usarPonto(lat, lon, rotulo) {
+      escolhasEl.hidden = true;
+      escolhasEl.innerHTML = "";
+      if (rotulo) texto("Lugar: " + rotulo);
+      buscarBanheiros(lat, lon);
+    }
+
+    function buscarEndereco(q) {
+      geoToken += 1;
+      const id = ++buscaId;
+      setOcupado(true);
+      texto("Buscando o endereço…");
+      const url = "https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=pt-BR&q=" + encodeURIComponent(q);
+      fetch(url).then(function (res) {
+        if (!res.ok) throw new Error("http");
+        return res.json();
+      }).then(function (arr) {
+        if (id !== buscaId) return;
+        setOcupado(false);
+        if (!arr || !arr.length) {
+          texto("Não achei esse lugar. Tente o nome da cidade.", true);
+          return;
+        }
+        if (arr.length === 1) {
+          usarPonto(parseFloat(arr[0].lat), parseFloat(arr[0].lon), arr[0].display_name);
+          return;
+        }
+        texto("Toque no lugar certo.");
+        escolhasEl.hidden = false;
+        escolhasEl.innerHTML = "";
+        arr.forEach(function (item) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = item.display_name;
+          b.addEventListener("click", function () {
+            usarPonto(parseFloat(item.lat), parseFloat(item.lon), item.display_name);
+          });
+          escolhasEl.appendChild(b);
+        });
+      }).catch(function () {
+        if (id !== buscaId) return;
+        setOcupado(false);
+        texto("A busca de endereço falhou. Tente de novo.", true);
+      });
+    }
+
+    function pedirLocal() {
+      if (!navigator.geolocation) {
+        texto("Este navegador não informou a localização. Digite uma cidade ou endereço.", true);
+        return;
+      }
+      const meu = ++geoToken;
+      texto("Pedindo sua localização…");
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        if (meu !== geoToken) return;
+        usarPonto(pos.coords.latitude, pos.coords.longitude);
+      }, function () {
+        if (meu !== geoToken) return;
+        texto("Sem localização. Digite uma cidade ou endereço.", true);
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+    }
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      const q = inputEndereco.value.trim();
+      if (!q) {
+        texto("Digite uma cidade ou endereço.", true);
+        return;
+      }
+      buscarEndereco(q);
+    });
+
+    btnDeNovo.addEventListener("click", function () {
+      const centro = mapa ? mapa.getCenter() : null;
+      if (centro && ponto) {
+        buscarBanheiros(centro.lat, centro.lng);
+        return;
+      }
+      if (ponto) {
+        buscarBanheiros(ponto.lat, ponto.lon);
+        return;
+      }
+      pedirLocal();
+    });
+
+    try {
+      if (!window.L) {
+        texto("O mapa não carregou. Verifique a internet e abra de novo.", true);
+      } else {
+        garantirMapa(-14.235, -51.9253);
+        mapa.setZoom(4);
+        pedirLocal();
+      }
+    } catch (e) {
+      texto("Algo deu errado ao abrir. Recarregue a página.", true);
+    }
+  </script>
+</body>
+</html>
