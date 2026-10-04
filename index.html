@@ -2,38 +2,70 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f7f5">
   <title>Encontrar banheiro</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
     :root {
       color-scheme: light;
-      --bg: #f3f6f4;
-      --ink: #1c2420;
-      --muted: #4d5c55;
-      --line: #d5e0da;
+      --bg: #f4f7f5;
+      --ink: #17241f;
+      --muted: #5c6f68;
+      --line: #d5e3dc;
       --card: #fff;
-      --accent: #0f6e56;
+      --field: #f7faf8;
+      --accent: #146b56;
       --accent-ink: #fff;
+      --accent-soft: #e5f3ed;
       --warn: #8a3b12;
       --warn-bg: #fff4ec;
+      --shadow: 0 8px 24px rgba(23, 36, 31, 0.08);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
     body {
       font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
       color: var(--ink);
       background: var(--bg);
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+    .app {
+      height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
-      min-height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      padding-top: env(safe-area-inset-top);
     }
-    header, .tools, footer { padding: 10px 12px; }
-    header { padding-bottom: 0; }
-    h1 { font-size: 1.25rem; margin: 0 0 6px; }
+    header {
+      flex: none;
+      background: var(--card);
+      padding: 14px 16px 12px;
+      box-shadow: 0 1px 0 var(--line);
+      z-index: 2;
+    }
+    .appbar {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .selo { flex: none; display: block; }
+    .marca-texto { flex: 1; min-width: 0; }
+    h1 {
+      font-size: 1.25rem;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 1px 0 4px;
+    }
     #status {
       margin: 0;
-      min-height: 2.6em;
+      min-height: 1.35em;
       font-size: 0.95rem;
       color: var(--muted);
     }
@@ -41,43 +73,124 @@
       color: var(--warn);
       background: var(--warn-bg);
       padding: 8px 10px;
-      border-radius: 8px;
-    }
-    .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    input, button {
-      font: inherit;
-      min-height: 44px;
       border-radius: 10px;
     }
-    input {
-      flex: 1 1 180px;
-      min-width: 0;
-      border: 1px solid var(--line);
+    #de-novo {
+      flex: none;
+      margin-top: 1px;
+      min-height: 40px;
       padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
       background: var(--card);
+      color: var(--accent);
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
     }
-    button {
+    .tools {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    input, button { font: inherit; }
+    input {
+      flex: 1;
+      min-width: 0;
+      min-height: 48px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 10px 16px;
+      background: var(--field);
+      color: var(--ink);
+    }
+    input::placeholder { color: #7d8e87; }
+    button[type="submit"] {
+      flex: none;
+      min-height: 48px;
+      padding: 0 18px;
       border: 0;
+      border-radius: 999px;
       background: var(--accent);
       color: var(--accent-ink);
-      padding: 8px 14px;
+      font-weight: 700;
       cursor: pointer;
     }
     button:disabled { opacity: 0.55; cursor: wait; }
-    button.secundario { background: #e7eeea; color: var(--ink); }
-    #escolhas { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
+    button:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    #escolhas:not([hidden]) {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 16px 10px;
+      max-height: 28vh;
+      overflow: auto;
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+    }
     #escolhas button {
       text-align: left;
-      background: var(--card);
+      background: var(--field);
       color: var(--ink);
       border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      min-height: 44px;
+      line-height: 1.35;
+      cursor: pointer;
     }
-    .layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    #map { height: 46vh; min-height: 240px; background: #d9e2dc; }
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #map {
+      flex: 1 1 0;
+      min-height: 160px;
+      background: #d5e2db;
+    }
+    .lado {
+      flex: 0 1 auto;
+      max-height: min(46dvh, 420px);
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+      border-top: 1px solid var(--line);
+      box-shadow: 0 -10px 28px rgba(23, 36, 31, 0.06);
+      z-index: 2;
+    }
+    .lado-scroll {
+      overflow: auto;
+      min-height: 0;
+      overscroll-behavior: contain;
+    }
+    .lista-titulo {
+      margin: 0;
+      padding: 12px 16px 0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .lado:has(#lista:empty) .lista-titulo { display: none; }
+    #vazio:not([hidden]) {
+      margin: 0;
+      padding: 22px 16px;
+      text-align: center;
+      color: var(--muted);
+    }
     #lista {
       list-style: none;
       margin: 0;
-      padding: 8px;
+      padding: 10px 12px 12px;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -88,43 +201,130 @@
       background: var(--card);
       color: var(--ink);
       border: 1px solid var(--line);
-      display: block;
+      border-radius: 16px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(23, 36, 31, 0.04);
     }
-    #lista li button.ativo { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
-    #lista .nome { display: block; font-weight: 650; }
-    #lista .detalhe { display: block; color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
-    #vazio { margin: 8px 12px; color: var(--muted); }
-    footer {
-      font-size: 0.8rem;
+    #lista li button.ativo {
+      border-color: #9dcebf;
+      background: #f3faf7;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .topo {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    #lista .nome {
+      font-weight: 700;
+      line-height: 1.3;
+      min-width: 0;
+    }
+    #lista .dist {
+      flex: none;
+      margin-top: 1px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    #lista .detalhe {
       color: var(--muted);
-      border-top: 1px solid var(--line);
+      font-size: 0.9rem;
     }
-    @media (min-width: 800px) {
-      .layout { flex-direction: row; min-height: 420px; }
-      #map { flex: 1; height: auto; min-height: 420px; }
-      .lado { width: min(380px, 38vw); overflow: auto; }
+    footer {
+      flex: none;
+      margin: 0;
+      padding: 4px 16px calc(12px + env(safe-area-inset-bottom));
+      font-size: 0.72rem;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+    .leaflet-container { font: inherit; }
+    .leaflet-bar {
+      border: 0 !important;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .leaflet-bar a { width: 34px; height: 34px; line-height: 34px; }
+    .leaflet-popup-content-wrapper {
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .leaflet-popup-content { margin: 12px 14px; line-height: 1.4; }
+    .leaflet-popup-content a { color: var(--accent); }
+    @media (hover: hover) {
+      button[type="submit"]:hover { background: #0f5a48; }
+      #de-novo:hover, #escolhas button:hover { background: var(--accent-soft); }
+      #lista li button:hover { border-color: #b7cdc4; }
+    }
+    @media (max-width: 420px) {
+      h1 { font-size: 1.12rem; }
+      #de-novo { padding: 8px 10px; font-size: 0.82rem; }
+    }
+    @media (min-width: 840px) {
+      header { padding: 16px 20px 14px; }
+      h1 { font-size: 1.45rem; }
+      .tools { max-width: 640px; }
+      .layout { flex-direction: row; }
+      #map { min-height: 0; height: auto; }
+      .lado {
+        width: min(420px, 40vw);
+        max-height: none;
+        flex: none;
+        align-self: stretch;
+        border-top: 0;
+        border-left: 1px solid var(--line);
+        box-shadow: none;
+      }
+      .lado-scroll { flex: 1; }
+      #lista { padding: 12px 14px 16px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Encontrar banheiro</h1>
-    <p id="status">Pedindo sua localização…</p>
-  </header>
-  <form class="tools" id="form-endereco">
-    <input id="endereco" type="search" enterkeyhint="search" placeholder="Cidade ou endereço" autocomplete="off" aria-label="Cidade ou endereço">
-    <button type="submit">Buscar</button>
-    <button type="button" class="secundario" id="de-novo">Buscar de novo</button>
-  </form>
-  <div id="escolhas" hidden></div>
-  <div class="layout">
-    <div id="map" role="region" aria-label="Mapa"></div>
-    <div class="lado">
-      <p id="vazio">Os banheiros aparecem aqui.</p>
-      <ul id="lista"></ul>
+  <div class="app">
+    <header>
+      <div class="appbar">
+        <svg class="selo" viewBox="0 0 32 32" width="36" height="36" aria-hidden="true">
+          <rect width="32" height="32" rx="11" fill="#e5f3ed"/>
+          <path fill="#146b56" d="M16 6.2a6.4 6.4 0 0 0-6.4 6.4c0 4.7 6.4 11.2 6.4 11.2s6.4-6.5 6.4-11.2A6.4 6.4 0 0 0 16 6.2zm0 8.6a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"/>
+        </svg>
+        <div class="marca-texto">
+          <h1>Encontrar banheiro</h1>
+          <p id="status">Pedindo sua localização…</p>
+        </div>
+        <button type="button" class="secundario" id="de-novo">Buscar de novo</button>
+      </div>
+      <form class="tools" id="form-endereco">
+        <input id="endereco" type="search" enterkeyhint="search" placeholder="Cidade ou endereço" autocomplete="off" aria-label="Cidade ou endereço">
+        <button type="submit">Buscar</button>
+      </form>
+    </header>
+    <div id="escolhas" hidden></div>
+    <div class="layout">
+      <div id="map" role="region" aria-label="Mapa"></div>
+      <div class="lado">
+        <div class="lado-scroll">
+          <p class="lista-titulo">Mais próximos</p>
+          <p id="vazio">Os banheiros aparecem aqui.</p>
+          <ul id="lista"></ul>
+        </div>
+        <footer>© OpenStreetMap contributors. Endereços via Nominatim. Banheiros via Overpass. A cobertura no Brasil é incompleta.</footer>
+      </div>
     </div>
   </div>
-  <footer>© OpenStreetMap contributors. Endereços via Nominatim. Banheiros via Overpass. A cobertura no Brasil é incompleta.</footer>
   <noscript><p>Ative o JavaScript para buscar banheiros.</p></noscript>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
@@ -261,12 +461,18 @@
       return lista;
     }
 
+    function ajustarMapa() {
+      if (!mapa) return;
+      requestAnimationFrame(function () { mapa.invalidateSize(); });
+    }
+
     function desenhar(lugares, lat, lon) {
       camadaBanheiros.clearLayers();
       listaEl.innerHTML = "";
       vazioEl.hidden = lugares.length > 0;
       if (!lugares.length) {
         vazioEl.textContent = "Nenhum banheiro nesta busca.";
+        ajustarMapa();
         return;
       }
       lugares.forEach(function (p) {
@@ -282,14 +488,23 @@
         const li = document.createElement("li");
         const b = document.createElement("button");
         b.type = "button";
+        const topo = document.createElement("span");
+        topo.className = "topo";
         const nome = document.createElement("span");
         nome.className = "nome";
         nome.textContent = p.nome;
-        const det = document.createElement("span");
-        det.className = "detalhe";
-        det.textContent = metros(p.dist) + (p.cadeira ? " · " + p.cadeira : "");
-        b.appendChild(nome);
-        b.appendChild(det);
+        const dist = document.createElement("span");
+        dist.className = "dist";
+        dist.textContent = metros(p.dist);
+        topo.appendChild(nome);
+        topo.appendChild(dist);
+        b.appendChild(topo);
+        if (p.cadeira) {
+          const det = document.createElement("span");
+          det.className = "detalhe";
+          det.textContent = p.cadeira;
+          b.appendChild(det);
+        }
         b.addEventListener("click", function () {
           document.querySelectorAll("#lista button").forEach(function (el) { el.classList.remove("ativo"); });
           b.classList.add("ativo");
@@ -299,6 +514,7 @@
         li.appendChild(b);
         listaEl.appendChild(li);
       });
+      ajustarMapa();
     }
 
     function escapar(s) {
@@ -335,6 +551,7 @@
         marcarUsuario(lat, lon, res.raio);
         desenhar(res.lugares, lat, lon);
         mapa.setView([lat, lon], res.raio > RAIO_PERTO ? 13 : 15);
+        ajustarMapa();
         const km = res.raio / 1000;
         if (!res.lugares.length) {
           texto("Nenhum banheiro público num raio de " + km + " km. O OpenStreetMap pode não ter banheiros nesta área.", true);
@@ -384,6 +601,7 @@
         }
         texto("Toque no lugar certo.");
         escolhasEl.hidden = false;
+        ajustarMapa();
         escolhasEl.innerHTML = "";
         arr.forEach(function (item) {
           const b = document.createElement("button");
